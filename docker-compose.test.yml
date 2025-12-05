@@ -1,0 +1,20 @@
+# Docker Compose for running tests
+
+version: '3.8'
+
+services:
+  test:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: vessels-test
+    command: test
+    environment:
+      - FALKORDB_HOST=localhost
+      - FALKORDB_PORT=6379
+      - VESSELS_DEBUG=true
+      - VESSELS_LOG_LEVEL=DEBUG
+      - VESSELS_GRAPH_NAME=vessels_test
+    volumes:
+      # Mount tests directory for development
+      - ./tests:/app/tests:ro
