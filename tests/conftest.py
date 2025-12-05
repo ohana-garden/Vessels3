@@ -14,7 +14,34 @@ import pytest
 # Add the app directory to the path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+# Import config module directly to avoid dependency chain
 from vessels.core.config import Settings, get_settings
+
+# Track if full dependencies are available
+# Check via environment variable or by checking if we're in Docker
+import subprocess
+
+
+def _check_full_deps() -> bool:
+    """Check if full dependencies (redis, falkordb) are available."""
+    # Check if FULL_DEPS_AVAILABLE env var is set
+    env_val = os.environ.get("VESSELS_FULL_DEPS", "").lower()
+    if env_val in ("1", "true", "yes"):
+        return True
+    if env_val in ("0", "false", "no"):
+        return False
+
+    # Try a safe check - just see if the package files exist
+    try:
+        result = subprocess.run(
+            ["python3", "-c", "import redis; import falkordb; print('ok')"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        return result.returncode == 0 and "ok" in result.stdout
+    except Exception:
+        return False
 
 
 @pytest.fixture
@@ -52,6 +79,9 @@ def mock_settings() -> Settings:
 @pytest.fixture
 def mock_redis() -> Generator[MagicMock, None, None]:
     """Mock Redis client for testing without real database."""
+    if not _check_full_deps():
+        pytest.skip("Redis/FalkorDB dependencies not available")
+
     mock = MagicMock()
     mock.ping.return_value = True
     mock.module_list.return_value = [{"name": "graph", "ver": 20000}]
@@ -71,6 +101,9 @@ def mock_redis() -> Generator[MagicMock, None, None]:
 @pytest.fixture
 def mock_falkordb() -> Generator[MagicMock, None, None]:
     """Mock FalkorDB client for testing without real database."""
+    if not _check_full_deps():
+        pytest.skip("Redis/FalkorDB dependencies not available")
+
     mock_client = MagicMock()
     mock_graph = MagicMock()
 
@@ -91,3 +124,15 @@ def clear_settings_cache():
     get_settings.cache_clear()
     yield
     get_settings.cache_clear()
+
+
+def pytest_collection_modifyitems(config, items):
+    """Skip tests that require full dependencies if not available."""
+    if _check_full_deps():
+        return
+
+    skip_marker = pytest.mark.skip(reason="Redis/FalkorDB dependencies not available")
+    for item in items:
+        # Skip tests in test_connection.py, test_graph.py, test_api.py
+        if any(name in str(item.fspath) for name in ["test_connection", "test_graph", "test_api"]):
+            item.add_marker(skip_marker)

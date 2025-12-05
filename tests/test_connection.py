@@ -1,6 +1,17 @@
 """
 Unit tests for FalkorDB connection module.
+
+These tests require FalkorDB dependencies (redis, falkordb).
+Set VESSELS_FULL_DEPS=true to run them.
 """
+
+import os
+import sys
+
+# Check dependencies before importing anything that needs them
+if os.environ.get("VESSELS_FULL_DEPS", "").lower() not in ("1", "true", "yes"):
+    import pytest
+    pytest.skip("FalkorDB dependencies not available", allow_module_level=True)
 
 from unittest.mock import MagicMock, patch
 
