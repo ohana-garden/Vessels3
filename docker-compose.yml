@@ -1,97 +1,63 @@
-# Vessels Docker Compose
-# Complete runtime environment with FalkorDB
-
-version: '3.8'
+# Vessels All-in-One Docker Compose
+#
+# Quick Start:
+#   1. Copy .env.example to .env and add your API keys
+#   2. Run: docker compose up -d
+#   3. Open: http://localhost:8080
+#
+# The container includes:
+#   - Vessels Agent Framework (Web UI, MCP support, Personas)
+#   - FalkorDB (Graph database for knowledge storage)
+#   - TigerBeetle (Financial transaction engine)
 
 services:
   vessels:
     build:
       context: .
       dockerfile: Dockerfile
+    image: vessels:latest
     container_name: vessels
     ports:
-      - "6379:6379"   # FalkorDB
-      - "8000:8000"   # Vessels API
+      - "8080:80"  # Web UI
+    volumes:
+      # Persistent data storage
+      - vessels-data:/data/falkordb
+      - vessels-tb:/data/tigerbeetle
+      - vessels-work:/vessels/work_dir
     environment:
-      # API Keys - pass from host environment or .env file
+      # LLM API Keys (at least one required)
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
-      # FalkorDB Configuration
+      # Graphiti Knowledge Graph Configuration
+      - GRAPHITI_LLM_PROVIDER=${GRAPHITI_LLM_PROVIDER:-openai}
+      - GRAPHITI_LLM_MODEL=${GRAPHITI_LLM_MODEL:-gpt-4o-mini}
+      - GRAPHITI_EMBEDDING_MODEL=${GRAPHITI_EMBEDDING_MODEL:-text-embedding-3-small}
+      # Hume AI Voice Integration (optional)
+      - HUME_API_KEY=${HUME_API_KEY:-}
+      - HUME_SECRET_KEY=${HUME_SECRET_KEY:-}
+      # Authentication (optional)
+      - AUTH_LOGIN=${AUTH_LOGIN:-}
+      - AUTH_PASSWORD=${AUTH_PASSWORD:-}
+      # Internal service configuration (defaults are fine)
       - FALKORDB_HOST=localhost
       - FALKORDB_PORT=6379
-      - FALKORDB_PASSWORD=${FALKORDB_PASSWORD:-}
-      - FALKORDB_DATA_DIR=/data/falkordb
-      # Vessels Configuration
-      - VESSELS_DEBUG=${VESSELS_DEBUG:-false}
-      - VESSELS_LOG_LEVEL=${VESSELS_LOG_LEVEL:-INFO}
-      - VESSELS_GRAPH_NAME=${VESSELS_GRAPH_NAME:-vessels}
-    volumes:
-      # Persist FalkorDB data
-      - vessels-data:/data/falkordb
-      # Mount logs for debugging
-      - vessels-logs:/var/log/supervisor
+      - FALKORDB_DATABASE=vessels
+      - TIGERBEETLE_HOST=localhost
+      - TIGERBEETLE_PORT=3000
+      - WEB_UI_HOST=0.0.0.0
+      - WEB_UI_PORT=80
+    restart: unless-stopped
     healthcheck:
-      test: ["CMD", "python", "/app/scripts/healthcheck.py"]
+      test: ["CMD", "curl", "-f", "http://localhost:80/health"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 30s
-    restart: unless-stopped
-    networks:
-      - vessels-network
-
-  # Alternative: Vessels with external FalkorDB
-  vessels-api:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: vessels-api
-    command: vessels-only
-    profiles:
-      - external-db
-    ports:
-      - "8000:8000"
-    environment:
-      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
-      - FALKORDB_HOST=${FALKORDB_HOST:-falkordb}
-      - FALKORDB_PORT=${FALKORDB_PORT:-6379}
-      - FALKORDB_PASSWORD=${FALKORDB_PASSWORD:-}
-      - VESSELS_DEBUG=${VESSELS_DEBUG:-false}
-      - VESSELS_LOG_LEVEL=${VESSELS_LOG_LEVEL:-INFO}
-      - VESSELS_GRAPH_NAME=${VESSELS_GRAPH_NAME:-vessels}
-    depends_on:
-      falkordb-standalone:
-        condition: service_healthy
-    networks:
-      - vessels-network
-
-  # Standalone FalkorDB for external-db profile
-  falkordb-standalone:
-    image: falkordb/falkordb:latest
-    container_name: falkordb
-    profiles:
-      - external-db
-    ports:
-      - "6379:6379"
-    volumes:
-      - falkordb-data:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    networks:
-      - vessels-network
+      start_period: 60s
 
 volumes:
   vessels-data:
-    driver: local
-  vessels-logs:
-    driver: local
-  falkordb-data:
-    driver: local
-
-networks:
-  vessels-network:
-    driver: bridge
+    name: vessels-falkordb-data
+  vessels-tb:
+    name: vessels-tigerbeetle-data
+  vessels-work:
+    name: vessels-work-dir

@@ -1,59 +1,48 @@
-# Environment files with secrets
-.env
-.env.local
-.env.*.local
-
-# Python
-__pycache__/
+# Ignore common unwanted files globally
+**/.DS_Store
+**/.env
+**/__pycache__/
 *.py[cod]
-*$py.class
-*.so
-.Python
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-*.egg-info/
-.installed.cfg
-*.egg
-MANIFEST
+**/.conda/
 
-# Virtual environments
-venv/
-ENV/
-env/
+#Ignore IDE files
+.cursor/
+.windsurf/
+
+# ignore test files in root dir
+/*.test.py
+
+# Ignore all contents of the virtual environment directory
 .venv/
 
-# Testing
-.pytest_cache/
-.coverage
-htmlcov/
-.tox/
-.nox/
+# Handle memory directory
+memory/**
+!memory/**/
 
-# IDE
-.idea/
-.vscode/
-*.swp
-*.swo
-*~
+# Handle logs directory
+logs/*
 
-# Docker
-.docker/
+# Handle tmp and usr directory
+tmp/*
+usr/*
 
-# Data directories
-data/
-*.rdb
-dump.rdb
+# Handle knowledge directory
+knowledge/**
+!knowledge/**/
+# Explicitly allow the default folder in knowledge
+!knowledge/default/
+!knowledge/default/**
 
-# Logs
-*.log
-logs/
+# Handle instruments directory
+instruments/**
+!instruments/**/
+# Explicitly allow the default folder in instruments
+!instruments/default/
+!instruments/default/**
+
+# Global rule to include .gitkeep files anywhere
+!**/.gitkeep
+
+# for browser-use
+agent_history.gif
+

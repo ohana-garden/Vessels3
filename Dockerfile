@@ -1,78 +1,114 @@
-# Vessels Dockerfile with FalkorDB
-# This container includes everything Vessels needs at runtime:
-# - FalkorDB (graph database)
-# - Python runtime
-# - Vessels application
-# - Startup scripts ensuring FalkorDB is fully loaded
+# Vessels All-in-One Container
+# Includes: Vessels Agent Framework + FalkorDB + TigerBeetle
+# Compatible with Windows 11 Docker Desktop
+#
+# This is the main Dockerfile for Vessels. It builds an all-in-one container
+# that includes everything needed to run the Vessels agent framework.
+#
+# Usage:
+#   docker build -t vessels .
+#   docker run -p 8080:80 -e OPENAI_API_KEY=sk-... vessels
+#
+# Or with docker-compose:
+#   docker compose up -d
 
-FROM falkordb/falkordb:latest as falkordb-base
-
-# Final stage with Python and FalkorDB
 FROM python:3.11-slim-bookworm
+
+LABEL maintainer="Vessels"
+LABEL description="All-in-one Vessels container with FalkorDB and TigerBeetle"
+
+# Prevent interactive prompts
+ENV DEBIAN_FRONTEND=noninteractive
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONDONTWRITEBYTECODE=1
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    # Build tools
+    build-essential \
+    cmake \
+    git \
     curl \
+    wget \
+    unzip \
+    # Redis/FalkorDB dependencies
+    libssl-dev \
+    # Supervisor for multi-process
     supervisor \
-    redis-tools \
-    procps \
+    # Document processing deps
+    tesseract-ocr \
+    poppler-utils \
+    libmagic1 \
+    # Cleanup
     && rm -rf /var/lib/apt/lists/*
 
-# Copy FalkorDB from the official image
-COPY --from=falkordb-base /usr/lib/redis/modules/falkordb.so /usr/lib/redis/modules/
-COPY --from=falkordb-base /usr/local/bin/redis-server /usr/local/bin/
-COPY --from=falkordb-base /usr/local/bin/redis-cli /usr/local/bin/
+# Install FalkorDB (Redis with graph module)
+RUN curl -fsSL https://packages.redis.io/gpg | gpg --dearmor -o /usr/share/keyrings/redis-archive-keyring.gpg \
+    && echo "deb [signed-by=/usr/share/keyrings/redis-archive-keyring.gpg] https://packages.redis.io/deb bookworm main" > /etc/apt/sources.list.d/redis.list \
+    && apt-get update \
+    && apt-get install -y redis-server \
+    && rm -rf /var/lib/apt/lists/*
+
+# Download and install FalkorDB module
+RUN mkdir -p /opt/falkordb \
+    && cd /opt/falkordb \
+    && curl -L https://github.com/FalkorDB/FalkorDB/releases/download/v4.4.1/FalkorDB-v4.4.1-linux-x64.tar.gz -o falkordb.tar.gz \
+    && tar -xzf falkordb.tar.gz \
+    && rm falkordb.tar.gz \
+    && mv falkordb.so /opt/falkordb/ 2>/dev/null || mv */falkordb.so /opt/falkordb/ 2>/dev/null || true
+
+# Install TigerBeetle
+RUN mkdir -p /opt/tigerbeetle \
+    && cd /opt/tigerbeetle \
+    && curl -L https://github.com/tigerbeetle/tigerbeetle/releases/download/0.16.11/tigerbeetle-x86_64-linux.zip -o tigerbeetle.zip \
+    && unzip tigerbeetle.zip \
+    && rm tigerbeetle.zip \
+    && chmod +x tigerbeetle \
+    && ln -s /opt/tigerbeetle/tigerbeetle /usr/local/bin/tigerbeetle
 
 # Create directories
-RUN mkdir -p /data/falkordb /app /var/log/supervisor /var/run
-
-# Set working directory
-WORKDIR /app
+RUN mkdir -p /vessels /data/falkordb /data/tigerbeetle /var/log/supervisor
 
 # Copy requirements first for better caching
-COPY requirements.txt .
+COPY requirements.txt /vessels/requirements.txt
 
 # Install Python dependencies
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir --upgrade pip \
+    && pip install --no-cache-dir -r /vessels/requirements.txt
 
 # Copy application code
-COPY vessels/ /app/vessels/
-COPY scripts/ /app/scripts/
+COPY . /vessels
+WORKDIR /vessels
 
-# Make scripts executable
-RUN chmod +x /app/scripts/*.sh
+# Copy supervisor and startup configs
+COPY docker/standalone/supervisord.conf /etc/supervisor/conf.d/supervisord.conf
+COPY docker/standalone/startup.sh /startup.sh
+COPY docker/standalone/start_vessels.sh /vessels/docker/standalone/start_vessels.sh
+RUN chmod +x /startup.sh /vessels/docker/standalone/start_vessels.sh
 
-# Copy configuration files
-COPY docker/supervisord.conf /etc/supervisor/conf.d/supervisord.conf
-COPY docker/redis.conf /etc/redis/redis.conf
-
-# Copy entrypoint
-COPY docker/entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh
-
-# Environment variables with defaults
-ENV FALKORDB_HOST=localhost \
-    FALKORDB_PORT=6379 \
-    FALKORDB_DATA_DIR=/data/falkordb \
-    VESSELS_LOG_LEVEL=INFO \
-    VESSELS_GRAPH_NAME=vessels \
-    PYTHONUNBUFFERED=1 \
-    PYTHONDONTWRITEBYTECODE=1
+# Environment variables
+ENV FALKORDB_HOST=localhost
+ENV FALKORDB_PORT=6379
+ENV FALKORDB_DATABASE=vessels
+ENV TIGERBEETLE_HOST=localhost
+ENV TIGERBEETLE_PORT=3000
+ENV TIGERBEETLE_CLUSTER_ID=0
+# Web UI binds to 0.0.0.0:80
+ENV WEB_UI_PORT=80
+ENV WEB_UI_HOST=0.0.0.0
 
 # Expose ports
-# 6379: FalkorDB (Redis protocol)
-# 8000: Vessels API
-EXPOSE 6379 8000
+# 80 - Vessels web UI
+# 6379 - FalkorDB (internal)
+# 3000 - TigerBeetle (internal)
+EXPOSE 80
 
 # Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
-    CMD python /app/scripts/healthcheck.py || exit 1
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD curl -f http://localhost:80/health || exit 1
 
-# Volume for data persistence
-VOLUME ["/data/falkordb"]
+# Volumes for persistence
+VOLUME ["/data/falkordb", "/data/tigerbeetle", "/vessels/work_dir"]
 
-# Entrypoint handles API key injection and startup
-ENTRYPOINT ["/entrypoint.sh"]
-
-# Default command starts supervisor (FalkorDB + Vessels)
-CMD ["supervisor"]
+# Start all services via supervisor
+CMD ["/startup.sh"]

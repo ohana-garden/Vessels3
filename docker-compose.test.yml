@@ -1,6 +1,9 @@
-# Docker Compose for running tests
-
-version: '3.8'
+# Docker Compose for running Vessels tests
+#
+# Usage:
+#   docker compose -f docker-compose.test.yml up --build
+#
+# The container starts FalkorDB and runs pytest
 
 services:
   test:
@@ -8,13 +11,20 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: vessels-test
-    command: test
+    command: >
+      bash -c "
+        echo 'Waiting for FalkorDB to be ready...' &&
+        sleep 10 &&
+        cd /vessels &&
+        python -m pytest tests/ -v --tb=short
+      "
     environment:
       - FALKORDB_HOST=localhost
       - FALKORDB_PORT=6379
+      - FALKORDB_DATABASE=vessels_test
       - VESSELS_DEBUG=true
       - VESSELS_LOG_LEVEL=DEBUG
-      - VESSELS_GRAPH_NAME=vessels_test
+      - PYTHONPATH=/vessels
     volumes:
       # Mount tests directory for development
-      - ./tests:/app/tests:ro
+      - ./tests:/vessels/tests:ro
