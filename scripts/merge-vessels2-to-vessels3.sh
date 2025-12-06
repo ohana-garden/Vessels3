@@ -18,7 +18,7 @@ SOURCE_REMOTE_NAME="vessels2"
 TARGET_REPO="https://github.com/ohana-garden/vessels3.git"
 MERGE_STRATEGY="merge"  # Can be "merge" or "squash"
 BRANCH_NAME=""
-DEFAULT_BRANCH="claude/docker-falkordb-setup-01WJZfwXzj8JKfrWTVfZ87rc"
+DEFAULT_BRANCH=""  # Will be detected from repository
 
 # Colors for output
 RED='\033[0;31m'
@@ -123,6 +123,23 @@ log_info "Fetching branches from vessels2..."
 git fetch "$SOURCE_REMOTE_NAME"
 log_info "Fetch complete"
 
+# Detect default branch if not already set
+if [ -z "$DEFAULT_BRANCH" ]; then
+    DEFAULT_BRANCH=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@')
+    if [ -z "$DEFAULT_BRANCH" ]; then
+        # Fall back to common defaults
+        if git rev-parse --verify origin/main >/dev/null 2>&1; then
+            DEFAULT_BRANCH="main"
+        elif git rev-parse --verify origin/master >/dev/null 2>&1; then
+            DEFAULT_BRANCH="master"
+        else
+            # Use current branch as fallback
+            DEFAULT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+        fi
+    fi
+    log_info "Detected default branch: $DEFAULT_BRANCH"
+fi
+
 # Step 3: Check if target branch already exists
 log_step "Step 3: Setting up target branch..."
 if git rev-parse --verify "$TARGET_BRANCH" >/dev/null 2>&1; then
@@ -156,11 +173,6 @@ CURRENT_BRANCH_NUM=0
 for branch in $VESSELS2_BRANCHES; do
     CURRENT_BRANCH_NUM=$((CURRENT_BRANCH_NUM + 1))
     log_info "[$CURRENT_BRANCH_NUM/$BRANCH_COUNT] Processing branch: $branch"
-    
-    # Check if this branch was already merged
-    MERGE_BASE=$(git merge-base HEAD "remotes/$SOURCE_REMOTE_NAME/$branch" 2>/dev/null || echo "")
-    HEAD_COMMIT=$(git rev-parse HEAD)
-    BRANCH_COMMIT=$(git rev-parse "remotes/$SOURCE_REMOTE_NAME/$branch")
     
     # Check if branch is already merged (HEAD contains all commits from branch)
     if git merge-base --is-ancestor "remotes/$SOURCE_REMOTE_NAME/$branch" HEAD 2>/dev/null; then
